@@ -759,18 +759,20 @@ async function appendRelated(id, title){
   appendLoadMoreBtn(id, title);
 }
 
-// Fetch rekomendasi dari /api/next (YouTube Up Next)
+// Fetch rekomendasi dari /api/next — kirim title+uploader agar backend bisa buat keyword
 async function fetchNextFromYT(id, limit=20){
   try{
-    const res = await fetch("/api/next?id="+id+"&limit="+limit);
+    const title   = encodeURIComponent(currentVideo?.title    || "");
+    const uploader = encodeURIComponent(currentVideo?.uploader || "");
+    const res = await fetch(`/api/next?id=${id}&limit=${limit}&title=${title}&uploader=${uploader}`);
     const data = await res.json();
+
     const fresh = [];
     const existingTitles = relatedVideos.map(v=>v.title||"");
     if(currentVideo) existingTitles.push(currentVideo.title||"");
 
     for(const v of (data.results||[])){
       if(!v.id || seenRelatedIds.has(v.id)) continue;
-      // Filter duplikat semantik — lagu sama judul beda
       if(isTooSimilar(v.title, existingTitles)) continue;
       seenRelatedIds.add(v.id);
       existingTitles.push(v.title||"");
