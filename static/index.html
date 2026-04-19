@@ -652,21 +652,56 @@ function buildRelatedCard(v, i){
   return div;
 }
 
+// Normalisasi judul untuk deteksi duplikat semantik
+function normTitle(title){
+  return (title||"")
+    .toLowerCase()
+    // Hapus kata-kata umum yang tidak membedakan lagu
+    .replace(/\b(official|video|audio|lyrics|lyric|hd|4k|full|song|music|mv|feat|ft|x|&|and|the|a|an|cover|version|ver|reprise|remix|female|male|lofi|lo-fi|slowed|reverb|sped up|speed up|acoustic|live|performance|visualizer|animated|karaoke|instrumental|extended|edit|vevo|records|entertainment|productions|presents|\d{4})\b/gi, "")
+    // Hapus karakter non-alfanumerik
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Hitung kesamaan dua string (Jaccard similarity pada kata)
+function titleSimilarity(a, b){
+  const wa = new Set(normTitle(a).split(" ").filter(Boolean));
+  const wb = new Set(normTitle(b).split(" ").filter(Boolean));
+  if(!wa.size || !wb.size) return 0;
+  let inter = 0;
+  for(const w of wa) if(wb.has(w)) inter++;
+  const union = new Set([...wa, ...wb]).size;
+  return inter / union;
+}
+
+// Cek apakah video terlalu mirip dengan yang sudah ada di list
+function isTooSimilar(title, existingTitles, threshold=0.6){
+  for(const t of existingTitles){
+    if(titleSimilarity(title, t) >= threshold) return true;
+  }
+  return false;
+}
+
 async function fetchRelatedBatch(keywords, excludeId, limit=20){
-  // Ambil dari beberapa keyword sekaligus secara paralel
   const queries = keywords.map(kw =>
     fetch("/api/search?q="+encodeURIComponent(kw)+"&limit="+limit)
       .then(r=>r.json()).then(d=>d.results||[]).catch(()=>[])
   );
   const batches = await Promise.all(queries);
   const merged = batches.flat();
-  // Dedupe & filter keluar video sekarang
   const fresh = [];
+  // Kumpulkan judul yang sudah ada (dari relatedVideos + yang sedang diputar)
+  const existingTitles = relatedVideos.map(v=>v.title||"");
+  if(currentVideo) existingTitles.push(currentVideo.title||"");
+
   for(const v of merged){
-    if(v.id && v.id!==excludeId && !seenRelatedIds.has(v.id)){
-      seenRelatedIds.add(v.id);
-      fresh.push(v);
-    }
+    if(!v.id || v.id===excludeId || seenRelatedIds.has(v.id)) continue;
+    // Filter duplikat semantik — lagu sama tapi judul beda
+    if(isTooSimilar(v.title, existingTitles)) continue;
+    seenRelatedIds.add(v.id);
+    existingTitles.push(v.title||""); // tambah ke daftar agar batch berikutnya ikut terfilter
+    fresh.push(v);
   }
   return fresh;
 }
@@ -686,61 +721,68 @@ async function loadRelated(id, title){
   seenRelatedIds.clear();
   seenRelatedIds.add(id);
 
-  const uploader = currentVideo?.uploader||"";
-  const keywords = getKeywordsFromTitle(title, uploader);
-  const vids = await fetchRelatedBatch(keywords, id, 25);
+  // Pakai /api/next — ambil rekomendasi langsung dari YouTube (persis "Up Next")
+  let vids = await fetchNextFromYT(id, 20);
 
   list.innerHTML="";
-  relatedVideos = vids;
-
   if(!vids.length){
     list.innerHTML='<div style="color:var(--muted);font-size:12px;">Tidak ada rekomendasi</div>';
     return;
   }
 
-  // Tandai pertama sebagai "berikutnya"
+  relatedVideos = vids;
+
   const firstCard = buildRelatedCard(vids[0], 0);
   firstCard.classList.add("next-up");
   const firstTitle = firstCard.querySelector(".related-title");
   if(firstTitle) firstTitle.textContent = "▶ " + (vids[0].title||"");
   list.appendChild(firstCard);
+  for(let i=1;i<vids.length;i++) list.appendChild(buildRelatedCard(vids[i], i));
 
-  for(let i=1;i<vids.length;i++){
-    list.appendChild(buildRelatedCard(vids[i], i));
-  }
-
-  // Tombol muat lebih
   appendLoadMoreBtn(id, title);
 }
 
+
 async function appendRelated(id, title){
-  // Hapus tombol load-more lama jika ada
   const oldBtn = document.getElementById("loadMoreBtn");
   if(oldBtn) oldBtn.remove();
 
-  const uploader = currentVideo?.uploader||"";
-  // Variasi keyword lebih berbeda untuk hasil segar
-  const words = title.split(/\s+/).filter(w=>w.length>2);
-  const extraKws = [
-    words.slice(1,5).join(" "),
-    words.slice(2,6).join(" "),
-    (uploader||"") + " " + words[0],
-    words.reverse().slice(0,3).join(" ")
-  ].filter(Boolean);
-
-  const vids = await fetchRelatedBatch(extraKws, id, 20);
-  if(!vids.length) return;
+  // Muat batch berikutnya dari YouTube — hasilnya otomatis berbeda karena server acak
+  const vids = await fetchNextFromYT(id, 20);
+  if(!vids.length){ appendLoadMoreBtn(id, title); return; }
 
   const list = document.getElementById("relatedList");
   const startI = relatedVideos.length;
   relatedVideos.push(...vids);
-
-  for(let i=0;i<vids.length;i++){
-    list.appendChild(buildRelatedCard(vids[i], startI+i));
-  }
+  for(let i=0;i<vids.length;i++) list.appendChild(buildRelatedCard(vids[i], startI+i));
 
   appendLoadMoreBtn(id, title);
 }
+
+// Fetch rekomendasi dari /api/next (YouTube Up Next)
+async function fetchNextFromYT(id, limit=20){
+  try{
+    const res = await fetch("/api/next?id="+id+"&limit="+limit);
+    const data = await res.json();
+    const fresh = [];
+    const existingTitles = relatedVideos.map(v=>v.title||"");
+    if(currentVideo) existingTitles.push(currentVideo.title||"");
+
+    for(const v of (data.results||[])){
+      if(!v.id || seenRelatedIds.has(v.id)) continue;
+      // Filter duplikat semantik — lagu sama judul beda
+      if(isTooSimilar(v.title, existingTitles)) continue;
+      seenRelatedIds.add(v.id);
+      existingTitles.push(v.title||"");
+      fresh.push(v);
+    }
+    return fresh;
+  }catch(e){
+    console.warn("fetchNextFromYT error:", e);
+    return [];
+  }
+}
+
 
 function appendLoadMoreBtn(id, title){
   const list = document.getElementById("relatedList");
