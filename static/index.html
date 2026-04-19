@@ -271,7 +271,11 @@ function onYouTubeIframeAPIReady(){
     height:'100%', width:'100%',
     playerVars:{autoplay:1,rel:0,modestbranding:1,iv_load_policy:3,enablejsapi:1},
     events:{
-      onReady:()=>{ if(ytPendingId){ loadYT(ytPendingId); ytPendingId=null; } },
+      onReady:(e)=>{
+        // Pastikan tidak muted dari sesi sebelumnya
+        try{ e.target.unMute(); e.target.setVolume(100); }catch{}
+        if(ytPendingId){ loadYT(ytPendingId); ytPendingId=null; }
+      },
       onStateChange:(e)=>{
         if(e.data===YT.PlayerState.PLAYING){
           ytAudioPlaying=true;
@@ -298,11 +302,10 @@ function loadYT(id){
   if(!ytReady||!ytPlayer||!ytPlayer.loadVideoById){ ytPendingId=id; return; }
   ytPendingId=null;
   ytPlayer.loadVideoById(id);
-  if(currentMode==='audio'){
-    setTimeout(()=>{ try{ ytPlayer.mute(); }catch{} },600);
-  } else {
-    setTimeout(()=>{ try{ ytPlayer.unMute(); }catch{} },300);
-  }
+  // Selalu unMute — overlay menyembunyikan visual, bukan mute suara
+  setTimeout(()=>{
+    try{ ytPlayer.unMute(); ytPlayer.setVolume(100); }catch{}
+  }, 800);
 }
 
 // ─── Progress timer untuk audio mode ─────────────────────────────────────────
@@ -383,7 +386,24 @@ function closeMini(){
 // ─── Next / Previous ─────────────────────────────────────────────────────────
 function playNext(){
   if(!relatedVideos.length) return;
-  relatedIndex = Math.min(relatedIndex+1, relatedVideos.length-1);
+  relatedIndex++;
+  // Kalau sudah hampir habis, muat lebih banyak otomatis
+  if(relatedIndex >= relatedVideos.length - 5 && currentVideo){
+    appendRelated(currentVideo.id, currentVideo.title);
+  }
+  // Kalau sudah melewati batas, muat dulu lalu main setelah ada
+  if(relatedIndex >= relatedVideos.length){
+    toast("⏳ Memuat video berikutnya...");
+    const waitAndPlay = setInterval(()=>{
+      if(relatedIndex < relatedVideos.length){
+        clearInterval(waitAndPlay);
+        const next=relatedVideos[relatedIndex];
+        if(next){ toast("▶ "+next.title.slice(0,50)); playVideo(next.id,next.title,next.uploader,next.duration,next.view_count); }
+      }
+    }, 300);
+    setTimeout(()=>clearInterval(waitAndPlay), 8000);
+    return;
+  }
   const next=relatedVideos[relatedIndex];
   if(!next) return;
   toast("▶ "+next.title.slice(0,50));
@@ -410,8 +430,12 @@ function loadAudio(id, info){
   }
   document.getElementById("audioStat").textContent="";
   document.getElementById("ppBtn").textContent="▶";
-  // Load video via YT player (muted = audio only experience)
+  // Load via YT IFrame — overlay menyembunyikan visual, suara tetap keluar
   loadYT(id);
+  // Double-ensure tidak muted (browser kadang auto-mute)
+  setTimeout(()=>{
+    try{ ytPlayer.unMute(); ytPlayer.setVolume(100); }catch{}
+  }, 1200);
 }
 
 function prefetch(id){ /* tidak perlu prefetch, pakai YT embed */ }
@@ -454,9 +478,10 @@ function switchMode(mode){
   document.getElementById("audioOverlay").style.display=mode==="audio"?"flex":"none";
   if(mode==="video"){
     clearInterval(ytProgressTimer);
-    try{ ytPlayer.unMute(); }catch{}
     loadYT(currentVideo.id);
   } else {
+    // Audio mode: unMute dulu, overlay yang menyembunyikan visual
+    try{ ytPlayer.unMute(); ytPlayer.setVolume(100); }catch{}
     loadAudio(currentVideo.id, currentVideo);
   }
   if(miniActive) activateMini();
@@ -606,35 +631,125 @@ function _playVideoInternal(id, title, uploader, duration, view_count, pushHisto
   loadRelated(id,title);
 }
 
-async function loadRelated(id,title){
-  const list=document.getElementById("relatedList");
-  list.innerHTML='<div style="color:var(--muted);font-size:12px;">Memuat...</div>';
-  relatedVideos=[]; relatedIndex=0;
-  try{
-    const kw=title.split(" ").slice(0,4).join(" ");
-    // Ambil 20 video terkait
-    const res=await fetch("/api/search?q="+encodeURIComponent(kw)+"&limit=20");
-    const data=await res.json();
-    list.innerHTML="";
-    const vids=(data.results||[]).filter(v=>v.id!==id);
-    relatedVideos=vids;
-    vids.forEach((v,i)=>{
-      const div=document.createElement("div");
-      div.className="related-card"+(i===0?" next-up":"");
-      div.id="rc-"+i;
-      div.onclick=()=>{relatedIndex=i;playVideo(v.id,v.title,v.uploader,v.duration,v.view_count);};
-      div.innerHTML=`<div class="related-thumb"><img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" loading="lazy"></div>
-        <div class="related-info">
-          <div class="related-title">${i===0?'▶ ':''}${v.title||''}</div>
-          <div class="related-meta">${v.uploader||''} · ${fmt(v.duration)}</div>
-        </div>`;
-      list.appendChild(div);
-    });
-    // Prefetch audio 2 video pertama
-    if(currentMode==="audio"){
-      [vids[0],vids[1]].forEach(v=>{ if(v) prefetch(v.id); });
+// ─── Helpers untuk related ────────────────────────────────────────────────────
+const seenRelatedIds = new Set();
+
+function buildRelatedCard(v, i){
+  const div=document.createElement("div");
+  const isNext=(i===0 && relatedVideos.length===1);
+  div.className="related-card"+(isNext?" next-up":"");
+  div.id="rc-"+(relatedVideos.length-1);
+  div.onclick=()=>{
+    const idx=relatedVideos.findIndex(x=>x.id===v.id);
+    if(idx>=0) relatedIndex=idx;
+    playVideo(v.id,v.title,v.uploader,v.duration,v.view_count);
+  };
+  div.innerHTML=`<div class="related-thumb"><img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" loading="lazy" onerror="this.src='https://img.youtube.com/vi/${v.id}/default.jpg'"></div>
+    <div class="related-info">
+      <div class="related-title">${v.title||''}</div>
+      <div class="related-meta">${v.uploader||''} · ${fmt(v.duration)}</div>
+    </div>`;
+  return div;
+}
+
+async function fetchRelatedBatch(keywords, excludeId, limit=20){
+  // Ambil dari beberapa keyword sekaligus secara paralel
+  const queries = keywords.map(kw =>
+    fetch("/api/search?q="+encodeURIComponent(kw)+"&limit="+limit)
+      .then(r=>r.json()).then(d=>d.results||[]).catch(()=>[])
+  );
+  const batches = await Promise.all(queries);
+  const merged = batches.flat();
+  // Dedupe & filter keluar video sekarang
+  const fresh = [];
+  for(const v of merged){
+    if(v.id && v.id!==excludeId && !seenRelatedIds.has(v.id)){
+      seenRelatedIds.add(v.id);
+      fresh.push(v);
     }
-  }catch{}
+  }
+  return fresh;
+}
+
+function getKeywordsFromTitle(title, uploader){
+  const words = title.split(/\s+/).filter(w=>w.length>2);
+  const kw1 = words.slice(0,4).join(" ");           // 4 kata awal
+  const kw2 = words.slice(0,2).join(" ");           // 2 kata paling penting
+  const kw3 = uploader || words.slice(-3).join(" ");// channel / kata akhir
+  return [...new Set([kw1,kw2,kw3])].filter(Boolean);
+}
+
+async function loadRelated(id, title){
+  const list=document.getElementById("relatedList");
+  list.innerHTML='<div style="color:var(--muted);font-size:12px;">⏳ Memuat rekomendasi...</div>';
+  relatedVideos=[]; relatedIndex=0;
+  seenRelatedIds.clear();
+  seenRelatedIds.add(id);
+
+  const uploader = currentVideo?.uploader||"";
+  const keywords = getKeywordsFromTitle(title, uploader);
+  const vids = await fetchRelatedBatch(keywords, id, 25);
+
+  list.innerHTML="";
+  relatedVideos = vids;
+
+  if(!vids.length){
+    list.innerHTML='<div style="color:var(--muted);font-size:12px;">Tidak ada rekomendasi</div>';
+    return;
+  }
+
+  // Tandai pertama sebagai "berikutnya"
+  const firstCard = buildRelatedCard(vids[0], 0);
+  firstCard.classList.add("next-up");
+  const firstTitle = firstCard.querySelector(".related-title");
+  if(firstTitle) firstTitle.textContent = "▶ " + (vids[0].title||"");
+  list.appendChild(firstCard);
+
+  for(let i=1;i<vids.length;i++){
+    list.appendChild(buildRelatedCard(vids[i], i));
+  }
+
+  // Tombol muat lebih
+  appendLoadMoreBtn(id, title);
+}
+
+async function appendRelated(id, title){
+  // Hapus tombol load-more lama jika ada
+  const oldBtn = document.getElementById("loadMoreBtn");
+  if(oldBtn) oldBtn.remove();
+
+  const uploader = currentVideo?.uploader||"";
+  // Variasi keyword lebih berbeda untuk hasil segar
+  const words = title.split(/\s+/).filter(w=>w.length>2);
+  const extraKws = [
+    words.slice(1,5).join(" "),
+    words.slice(2,6).join(" "),
+    (uploader||"") + " " + words[0],
+    words.reverse().slice(0,3).join(" ")
+  ].filter(Boolean);
+
+  const vids = await fetchRelatedBatch(extraKws, id, 20);
+  if(!vids.length) return;
+
+  const list = document.getElementById("relatedList");
+  const startI = relatedVideos.length;
+  relatedVideos.push(...vids);
+
+  for(let i=0;i<vids.length;i++){
+    list.appendChild(buildRelatedCard(vids[i], startI+i));
+  }
+
+  appendLoadMoreBtn(id, title);
+}
+
+function appendLoadMoreBtn(id, title){
+  const list = document.getElementById("relatedList");
+  const btn = document.createElement("button");
+  btn.id="loadMoreBtn";
+  btn.className="load-more";
+  btn.textContent="⬇ Muat Lebih Banyak";
+  btn.onclick=()=>{ btn.textContent="⏳ Memuat..."; btn.disabled=true; appendRelated(id,title); };
+  list.appendChild(btn);
 }
 
 loadHome();
