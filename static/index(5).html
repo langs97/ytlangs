@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YuTube</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0f;--surface:#13131a;--surface2:#1c1c26;--border:#2a2a38;--red:#ff2d55;--red2:#ff6b6b;--text:#f0f0f5;--muted:#7a7a9a;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;padding-bottom:130px;}
+header{position:sticky;top:0;z-index:200;background:rgba(10,10,15,0.92);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:0 16px;height:58px;display:flex;align-items:center;gap:12px;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--red);letter-spacing:2px;cursor:pointer;white-space:nowrap;}
+.logo span{color:var(--text);}
+.search-wrap{flex:1;max-width:520px;display:flex;}
+.search-wrap input{flex:1;background:var(--surface2);border:1px solid var(--border);border-right:none;border-radius:9px 0 0 9px;padding:8px 12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;transition:border-color 0.2s;}
+.search-wrap input:focus{border-color:var(--red);}
+.search-wrap input::placeholder{color:var(--muted);}
+.search-wrap button{background:var(--red);border:none;border-radius:0 9px 9px 0;padding:8px 14px;color:white;cursor:pointer;font-size:15px;}
+.nav-tabs{display:flex;gap:2px;padding:0 16px;border-bottom:1px solid var(--border);background:var(--bg);overflow-x:auto;}
+.nav-tab{padding:9px 14px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s;}
+.nav-tab:hover{color:var(--text);}
+.nav-tab.active{color:var(--red);border-bottom-color:var(--red);}
+main{max-width:1280px;margin:0 auto;padding:16px;}
+.page{display:none;}.page.active{display:block;}
+.section-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--muted);margin-bottom:14px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:28px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:transform 0.2s,border-color 0.2s,box-shadow 0.2s;}
+.card:hover{transform:translateY(-3px);border-color:var(--red);box-shadow:0 6px 22px rgba(255,45,85,0.15);}
+.card-thumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--surface2);}
+.card-thumb img{width:100%;height:100%;object-fit:cover;transition:transform 0.3s;}
+.card:hover .card-thumb img{transform:scale(1.05);}
+.card-duration{position:absolute;bottom:5px;right:5px;background:rgba(0,0,0,0.85);color:white;font-size:11px;font-weight:600;padding:2px 5px;border-radius:4px;}
+.play-ov{position:absolute;inset:0;background:rgba(255,45,85,0);display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.2s;}
+.card:hover .play-ov{opacity:1;background:rgba(255,45,85,0.12);}
+.card-info{padding:10px 11px;}
+.card-title{font-size:12px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:4px;}
+.card-meta{font-size:11px;color:var(--muted);}
+.related-card.next-up{border-color:var(--red)!important;background:rgba(255,45,85,0.06);}
+
+.player-layout{display:grid;grid-template-columns:1fr 320px;gap:18px;}
+@media(max-width:820px){.player-layout{grid-template-columns:1fr;}}
+
+/* Video embed */
+.embed-wrap{border-radius:12px;overflow:hidden;aspect-ratio:16/9;background:#000;}
+#ytEmbed{width:100%;height:100%;border:none;}
+
+/* Audio player */
+.audio-player{border-radius:12px;overflow:hidden;background:var(--surface);border:1px solid var(--border);display:none;}
+.audio-thumb-wrap{position:relative;aspect-ratio:16/9;background:var(--surface2);}
+.audio-thumb-wrap img{width:100%;height:100%;object-fit:cover;}
+.audio-thumb-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:64px;}
+.audio-body{padding:14px;}
+.audio-title-el{font-size:15px;font-weight:600;margin-bottom:3px;line-height:1.3;}
+.audio-uploader-el{font-size:12px;color:var(--muted);margin-bottom:12px;}
+.audio-status{font-size:12px;color:var(--muted);margin-bottom:10px;min-height:16px;}
+.audio-controls{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+.ac-btn{background:none;border:none;color:var(--text);cursor:pointer;font-size:20px;padding:4px;transition:color 0.2s;}
+.ac-btn:hover{color:var(--red);}
+.ac-btn.pp{background:var(--red);border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:16px;color:white;flex-shrink:0;}
+.ac-btn.pp:hover{background:var(--red2);}
+.prog-wrap{flex:1;display:flex;align-items:center;gap:7px;}
+.prog-bar{flex:1;height:4px;background:var(--border);border-radius:2px;cursor:pointer;}
+.prog-fill{height:100%;background:var(--red);border-radius:2px;width:0%;pointer-events:none;transition:width 0.3s linear;}
+.time-lbl{font-size:11px;color:var(--muted);white-space:nowrap;}
+.vol-row{display:flex;align-items:center;gap:6px;font-size:13px;}
+.vol-row input{flex:1;accent-color:var(--red);}
+
+.mode-toggle{display:flex;margin-bottom:14px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;overflow:hidden;width:fit-content;}
+.mode-btn{padding:7px 18px;font-size:12px;font-weight:500;cursor:pointer;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;transition:all 0.2s;}
+.mode-btn.active{background:var(--red);color:white;}
+
+.video-info{margin-top:12px;}
+.video-title{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:5px;}
+.video-uploader{font-size:12px;color:var(--muted);margin-bottom:12px;}
+.dl-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;}
+.dl-box h3{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--muted);margin-bottom:9px;}
+.dl-grp{margin-bottom:9px;}
+.dl-lbl{font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;}
+.dl-btns{display:flex;flex-wrap:wrap;gap:6px;}
+.dl-btn{padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.2s;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+.dl-btn:hover{border-color:var(--red);color:var(--red);background:rgba(255,45,85,0.08);}
+.dl-btn.adl{border-color:#6d28d9;color:#a78bfa;}
+.dl-btn.adl:hover{background:rgba(109,40,217,0.1);}
+
+.sidebar-title{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--muted);margin-bottom:9px;}
+.related-list{display:flex;flex-direction:column;gap:7px;}
+.related-card{display:flex;gap:8px;cursor:pointer;padding:7px;border-radius:8px;border:1px solid transparent;transition:all 0.2s;}
+.related-card:hover{background:var(--surface);border-color:var(--border);}
+.related-thumb{width:100px;min-width:100px;aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:var(--surface2);}
+.related-thumb img{width:100%;height:100%;object-fit:cover;}
+.related-info{flex:1;overflow:hidden;}
+.related-title{font-size:12px;font-weight:500;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:2px;}
+.related-meta{font-size:10px;color:var(--muted);}
+
+.back-btn{display:inline-flex;align-items:center;gap:6px;color:var(--muted);cursor:pointer;font-size:13px;margin-bottom:12px;background:none;border:none;font-family:'DM Sans',sans-serif;transition:color 0.2s;}
+.back-btn:hover{color:var(--text);}
+
+/* MINI PLAYER */
+#miniPlayer{position:fixed;bottom:0;left:0;right:0;z-index:999;background:var(--surface);border-top:2px solid var(--red);display:none;}
+#miniPlayer.show{display:block;}
+.mini-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;}
+.mini-thumb-img{width:56px;height:38px;border-radius:6px;object-fit:cover;background:var(--surface2);cursor:pointer;flex-shrink:0;}
+.mini-info{flex:1;overflow:hidden;cursor:pointer;}
+.mini-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mini-up{font-size:11px;color:var(--muted);}
+.mini-ctrl{display:flex;align-items:center;gap:4px;}
+.mini-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;padding:4px 7px;border-radius:5px;transition:color 0.2s;}
+.mini-btn:hover{color:var(--text);}
+.mini-prog-wrap{padding:0 14px 6px;display:none;align-items:center;gap:8px;}
+.mini-prog-wrap.show{display:flex;}
+.mini-prog{flex:1;height:3px;background:var(--border);border-radius:2px;cursor:pointer;}
+.mini-prog-fill{height:100%;background:var(--red);border-radius:2px;width:0%;}
+.mini-time{font-size:10px;color:var(--muted);}
+
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted);}
+.empty-state .big{font-family:'Bebas Neue',sans-serif;font-size:60px;color:var(--border);line-height:1;margin-bottom:10px;}
+.spinner{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin 0.8s linear infinite;margin:50px auto;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:8px;font-size:12px;transition:transform 0.3s;z-index:9999;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:var(--bg);}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" onclick="showPage('home')">YU<span>TUBE</span></div>
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Cari video..." onkeydown="if(event.key==='Enter')doSearch()">
+    <button onclick="doSearch()">🔍</button>
+  </div>
+</header>
+<div class="nav-tabs">
+  <div class="nav-tab active" id="tab-home" onclick="showPage('home')">🏠 Beranda</div>
+  <div class="nav-tab" id="tab-history" onclick="showPage('history')">🕐 Riwayat</div>
+  <div class="nav-tab" id="tab-search" style="display:none" onclick="showPage('search')">🔍 Pencarian</div>
+</div>
+<main>
+  <div class="page active" id="page-home">
+    <div class="section-title">🔥 REKOMENDASI</div>
+    <div id="homeGrid"><div class="spinner"></div></div>
+  </div>
+  <div class="page" id="page-search">
+    <div class="section-title" id="searchLabel">HASIL PENCARIAN</div>
+    <div id="searchGrid"></div>
+  </div>
+  <div class="page" id="page-history">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div class="section-title" style="margin:0">🕐 RIWAYAT</div>
+      <button onclick="clearHistory()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:5px 10px;border-radius:7px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;">Hapus Semua</button>
+    </div>
+    <div id="historyGrid"></div>
+  </div>
+  <div class="page" id="page-player">
+    <button class="back-btn" onclick="goBack()">← Kembali</button>
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="modeVideo" onclick="switchMode('video')">🎬 Video</button>
+      <button class="mode-btn" id="modeAudio" onclick="switchMode('audio')">🎵 Audio</button>
+    </div>
+    <div class="player-layout">
+      <div>
+        <!-- Video -->
+        <div class="embed-wrap" id="embedWrap">
+          <div id="ytEmbed"></div>
+        </div>
+        <!-- Audio -->
+        <div class="audio-player" id="audioPlayer">
+          <div class="audio-thumb-wrap">
+            <img id="audioThumb" src="" alt="" style="display:none">
+            <div class="audio-thumb-placeholder" id="audioThumbPlaceholder">🎵</div>
+          </div>
+          <div class="audio-body">
+            <div class="audio-title-el" id="audioTitleEl">—</div>
+            <div class="audio-uploader-el" id="audioUploaderEl">—</div>
+            <div class="audio-status" id="audioStatus">⏳ Memuat audio...</div>
+            <div class="audio-controls">
+              <button class="ac-btn" onclick="seekAudio(-10)">⏪</button>
+              <button class="ac-btn pp" id="ppBtn" onclick="togglePlay()">▶</button>
+              <button class="ac-btn" onclick="seekAudio(10)">⏩</button>
+              <div class="prog-wrap">
+                <div class="prog-bar" id="progBar" onclick="seekClick(event,this)">
+                  <div class="prog-fill" id="progFill"></div>
+                </div>
+                <div class="time-lbl" id="timeLbl">0:00 / 0:00</div>
+              </div>
+            </div>
+            <div class="vol-row">🔊<input type="range" min="0" max="1" step="0.05" value="1" oninput="audioEl.volume=this.value"></div>
+          </div>
+        </div>
+        <div class="video-info">
+          <div class="video-title" id="videoTitle">—</div>
+          <div class="video-uploader" id="videoUploader">—</div>
+          <div class="dl-box">
+            <h3>⬇ Download</h3>
+            <div class="dl-grp"><div class="dl-lbl">Video MP4</div><div class="dl-btns" id="dlVideo"></div></div>
+            <div class="dl-grp"><div class="dl-lbl">Audio</div><div class="dl-btns" id="dlAudio"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar">
+        <div class="sidebar-title">Video Terkait</div>
+        <div class="related-list" id="relatedList"><div style="color:var(--muted);font-size:12px;">Memuat...</div></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MINI PLAYER -->
+<div id="miniPlayer">
+  <div class="mini-bar">
+    <img class="mini-thumb-img" id="miniThumb" src="" onclick="expandPlayer()">
+    <div class="mini-info" onclick="expandPlayer()">
+      <div class="mini-title" id="miniTitle">—</div>
+      <div class="mini-up" id="miniUp">—</div>
+    </div>
+    <div class="mini-ctrl">
+      <button class="mini-btn" id="miniPPBtn" onclick="togglePlay()" style="display:none">▶</button>
+      <button class="mini-btn" onclick="expandPlayer()">⤢</button>
+      <button class="mini-btn" onclick="closeMini()">✕</button>
+    </div>
+  </div>
+  <div class="mini-prog-wrap" id="miniProgWrap">
+    <div class="mini-prog" onclick="seekClick(event,this)">
+      <div class="mini-prog-fill" id="miniProgFill"></div>
+    </div>
+    <div class="mini-time" id="miniTime">0:00</div>
+  </div>
+</div>
+
+<audio id="audioEl" preload="auto"></audio>
+<div class="toast" id="toast"></div>
+
+<!-- YouTube IFrame API -->
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let currentVideo = null;
+let prevPage = 'home';
+let currentMode = 'video'; // diingat saat pindah video
+let miniActive = false;
+let relatedVideos = [];
+let audioCache = {}; // cache {id: url}
+const audioEl = document.getElementById('audioEl');
+let ytPlayer = null;
+let ytReady = false;
+let ytPendingId = null;
+
+// ─── YouTube IFrame API ───────────────────────────────────────────────────────
+function onYouTubeIframeAPIReady(){
+  ytReady = true;
+  ytPlayer = new YT.Player('ytEmbed',{
+    height:'100%', width:'100%',
+    playerVars:{autoplay:1, rel:0, modestbranding:1, iv_load_policy:3},
+    events:{
+      onReady: ()=>{ if(ytPendingId) loadYT(ytPendingId); },
+      onStateChange: (e)=>{
+        // State 0 = ended
+        if(e.data === YT.PlayerState.ENDED && currentMode==='video'){
+          playNext();
+        }
+      }
+    }
+  });
+}
+
+function loadYT(id){
+  if(!ytReady || !ytPlayer){ ytPendingId=id; return; }
+  ytPendingId=null;
+  ytPlayer.loadVideoById(id);
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function fmt(s){if(!s)return"0:00";const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60);if(h>0)return h+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0");return m+":"+String(sec).padStart(2,"0");}
+function fmtV(n){if(!n)return"";if(n>=1e6)return(n/1e6).toFixed(1)+"M views";if(n>=1e3)return Math.floor(n/1e3)+"K views";return n+" views";}
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),3000);}
+
+// ─── History ─────────────────────────────────────────────────────────────────
+function getHist(){try{return JSON.parse(localStorage.getItem("yt_h")||"[]");}catch{return[];}}
+function addHist(v){let h=getHist().filter(x=>x.id!==v.id);h.unshift(v);if(h.length>50)h=h.slice(0,50);localStorage.setItem("yt_h",JSON.stringify(h));}
+function clearHistory(){localStorage.removeItem("yt_h");renderHistory();toast("Riwayat dihapus");}
+
+// ─── Pages ───────────────────────────────────────────────────────────────────
+function showPage(name){
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));
+  document.getElementById("page-"+name).classList.add("active");
+  const tab=document.getElementById("tab-"+name);
+  if(tab)tab.classList.add("active");
+  if(name==="history")renderHistory();
+  if(name==="home"&&document.getElementById("homeGrid").children.length<=1)loadHome();
+}
+
+function goBack(){
+  if(currentVideo) activateMini();
+  showPage(prevPage==="player"?"home":prevPage);
+}
+
+// ─── Mini Player ─────────────────────────────────────────────────────────────
+function activateMini(){
+  if(!currentVideo) return;
+  miniActive=true;
+  document.getElementById("miniThumb").src="https://img.youtube.com/vi/"+currentVideo.id+"/mqdefault.jpg";
+  document.getElementById("miniTitle").textContent=currentVideo.title;
+  document.getElementById("miniUp").textContent=currentVideo.uploader;
+  document.getElementById("miniPlayer").classList.add("show");
+  if(currentMode==="audio"){
+    document.getElementById("miniPPBtn").style.display="flex";
+    document.getElementById("miniProgWrap").classList.add("show");
+    // Audio tetap jalan
+  } else {
+    document.getElementById("miniPPBtn").style.display="none";
+    document.getElementById("miniProgWrap").classList.remove("show");
+    // Video tetap jalan di YouTube player (tidak di-stop)
+  }
+}
+
+function expandPlayer(){
+  miniActive=false;
+  document.getElementById("miniPlayer").classList.remove("show");
+  showPage("player");
+  window.scrollTo(0,0);
+}
+
+function closeMini(){
+  miniActive=false;
+  document.getElementById("miniPlayer").classList.remove("show");
+  audioEl.pause(); audioEl.src="";
+  if(ytPlayer) ytPlayer.stopVideo();
+  currentVideo=null; relatedVideos=[];
+}
+
+// ─── Auto play next ───────────────────────────────────────────────────────────
+function playNext(){
+  const next=relatedVideos[0];
+  if(!next) return;
+  toast("▶ Memutar selanjutnya: "+next.title.slice(0,40));
+  playVideo(next.id, next.title, next.uploader);
+}
+
+// Audio ended → auto next
+audioEl.addEventListener("ended",()=>{
+  if(currentMode==="audio") playNext();
+});
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+async function fetchAudioUrl(id){
+  if(audioCache[id]) return audioCache[id];
+  const res=await fetch("/api/audio_url?id="+id);
+  const data=await res.json();
+  if(data.error) throw new Error(data.error);
+  audioCache[id]=data.url;
+  return data.url;
+}
+
+async function loadAndPlayAudio(id, info){
+  document.getElementById("audioStatus").textContent="⏳ Memuat audio...";
+  document.getElementById("ppBtn").textContent="▶";
+
+  // Set info dulu dari data yang sudah ada
+  if(info){
+    document.getElementById("audioTitleEl").textContent=info.title||"";
+    document.getElementById("audioUploaderEl").textContent=info.uploader||"";
+  }
+
+  // Set thumbnail
+  const thumbUrl="https://img.youtube.com/vi/"+id+"/maxresdefault.jpg";
+  const thumbEl=document.getElementById("audioThumb");
+  const thumbPh=document.getElementById("audioThumbPlaceholder");
+
+  // Coba load thumbnail HD dulu
+  const img=new Image();
+  img.onload=()=>{
+    thumbEl.src=thumbUrl;
+    thumbEl.style.display="block";
+    thumbPh.style.display="none";
+  };
+  img.onerror=()=>{
+    // Fallback ke mqdefault
+    thumbEl.src="https://img.youtube.com/vi/"+id+"/mqdefault.jpg";
+    thumbEl.style.display="block";
+    thumbPh.style.display="none";
+  };
+  img.src=thumbUrl;
+
+  try{
+    const url=await fetchAudioUrl(id);
+    audioEl.src=url;
+    audioEl.load();
+    const playProm=audioEl.play();
+    if(playProm) playProm.catch(()=>{});
+    document.getElementById("audioStatus").textContent="";
+  }catch(e){
+    document.getElementById("audioStatus").textContent="❌ Gagal: "+e.message;
+  }
+}
+
+// Prefetch audio di background
+function prefetch(id){
+  if(!audioCache[id]) fetchAudioUrl(id).catch(()=>{});
+}
+
+function togglePlay(){
+  if(audioEl.paused) audioEl.play();
+  else audioEl.pause();
+}
+
+function seekAudio(s){audioEl.currentTime=Math.max(0,audioEl.currentTime+s);}
+
+function seekClick(e,bar){
+  const rect=bar.getBoundingClientRect();
+  const ratio=(e.clientX-rect.left)/rect.width;
+  if(audioEl.duration) audioEl.currentTime=Math.max(0,Math.min(ratio*audioEl.duration,audioEl.duration));
+}
+
+// Progress update
+audioEl.addEventListener("timeupdate",()=>{
+  if(!audioEl.duration||isNaN(audioEl.duration)) return;
+  const pct=(audioEl.currentTime/audioEl.duration*100).toFixed(2)+"%";
+  document.getElementById("progFill").style.width=pct;
+  document.getElementById("miniProgFill").style.width=pct;
+  document.getElementById("timeLbl").textContent=fmt(audioEl.currentTime)+" / "+fmt(audioEl.duration);
+  document.getElementById("miniTime").textContent=fmt(audioEl.currentTime);
+});
+audioEl.addEventListener("play",()=>{
+  document.getElementById("ppBtn").textContent="⏸";
+  document.getElementById("miniPPBtn").textContent="⏸";
+});
+audioEl.addEventListener("pause",()=>{
+  document.getElementById("ppBtn").textContent="▶";
+  document.getElementById("miniPPBtn").textContent="▶";
+});
+
+// ─── Mode switch ─────────────────────────────────────────────────────────────
+function switchMode(mode){
+  if(!currentVideo||currentMode===mode) return;
+  currentMode=mode;
+  document.getElementById("modeVideo").classList.toggle("active",mode==="video");
+  document.getElementById("modeAudio").classList.toggle("active",mode==="audio");
+  document.getElementById("embedWrap").style.display=mode==="video"?"block":"none";
+  document.getElementById("audioPlayer").style.display=mode==="audio"?"block":"none";
+
+  if(mode==="video"){
+    audioEl.pause();
+    loadYT(currentVideo.id);
+  } else {
+    if(ytPlayer) ytPlayer.pauseVideo();
+    loadAndPlayAudio(currentVideo.id, currentVideo);
+  }
+}
+
+// ─── Card HTML ────────────────────────────────────────────────────────────────
+function cardHTML(v){
+  const t=(v.title||"").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  const u=(v.uploader||"").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  return`<div class="card" onclick="playVideo('${v.id}','${t}','${u}')">
+    <div class="card-thumb">
+      <img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" loading="lazy">
+      <div class="play-ov"><svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="rgba(255,45,85,0.9)"/><path d="M15 11l14 9-14 9V11z" fill="white"/></svg></div>
+      ${v.duration?'<div class="card-duration">'+fmt(v.duration)+'</div>':''}
+    </div>
+    <div class="card-info">
+      <div class="card-title">${v.title||''}</div>
+      <div class="card-meta">${v.uploader||''} ${v.view_count?'· '+fmtV(v.view_count):''}</div>
+    </div>
+  </div>`;
+}
+
+// ─── Home ─────────────────────────────────────────────────────────────────────
+async function loadHome(){
+  const grid=document.getElementById("homeGrid");
+  grid.innerHTML='<div class="spinner"></div>';
+  const h=getHist();
+  let kw="trending music 2025";
+  if(h.length>0) kw=h[0].title.split(" ").slice(0,3).join(" ")||kw;
+  try{
+    const res=await fetch("/api/search?q="+encodeURIComponent(kw));
+    const data=await res.json();
+    if(!data.results?.length) throw new Error();
+    grid.innerHTML='<div class="grid">'+data.results.map(cardHTML).join("")+'</div>';
+  }catch{
+    grid.innerHTML='<div class="empty-state"><div class="big">▶</div><div>Cari video untuk mulai</div></div>';
+  }
+}
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+async function doSearch(){
+  const q=document.getElementById("searchInput").value.trim();
+  if(!q) return;
+  // Kalau di player → mini player, video/audio TETAP JALAN
+  if(document.getElementById("page-player").classList.contains("active")&&currentVideo){
+    activateMini();
+  }
+  prevPage="search";
+  document.getElementById("tab-search").style.display="flex";
+  document.getElementById("searchLabel").textContent='HASIL: "'+q+'"';
+  document.getElementById("searchGrid").innerHTML='<div class="spinner"></div>';
+  showPage("search");
+  try{
+    const res=await fetch("/api/search?q="+encodeURIComponent(q));
+    const data=await res.json();
+    if(!data.results?.length){document.getElementById("searchGrid").innerHTML='<div class="empty-state">Tidak ada hasil</div>';return;}
+    document.getElementById("searchGrid").innerHTML='<div class="grid">'+data.results.map(cardHTML).join("")+'</div>';
+  }catch(e){document.getElementById("searchGrid").innerHTML='<div class="empty-state">Error: '+e.message+'</div>';}
+}
+
+// ─── History ─────────────────────────────────────────────────────────────────
+function renderHistory(){
+  const h=getHist();
+  const grid=document.getElementById("historyGrid");
+  if(!h.length){grid.innerHTML='<div class="empty-state"><div class="big">🕐</div><div>Belum ada riwayat</div></div>';return;}
+  grid.innerHTML='<div class="grid">'+h.map(cardHTML).join("")+'</div>';
+}
+
+// ─── Play Video ───────────────────────────────────────────────────────────────
+function playVideo(id, title, uploader){
+  // Tutup mini
+  if(miniActive){
+    document.getElementById("miniPlayer").classList.remove("show");
+    miniActive=false;
+  }
+
+  // Stop player sebelumnya
+  audioEl.pause();
+  if(ytPlayer && currentMode==="video") ytPlayer.stopVideo();
+
+  // Ingat mode sebelumnya — TIDAK reset ke video
+  const modeToUse = currentMode;
+
+  currentVideo={id,title,uploader};
+  addHist({id,title,uploader,duration:0,view_count:0});
+
+  const ap=document.querySelector(".page.active");
+  if(ap&&ap.id!=="page-player") prevPage=ap.id.replace("page-","");
+
+  showPage("player");
+  window.scrollTo(0,0);
+
+  // Terapkan mode yang diingat
+  document.getElementById("modeVideo").classList.toggle("active",modeToUse==="video");
+  document.getElementById("modeAudio").classList.toggle("active",modeToUse==="audio");
+  document.getElementById("embedWrap").style.display=modeToUse==="video"?"block":"none";
+  document.getElementById("audioPlayer").style.display=modeToUse==="audio"?"block":"none";
+
+  document.getElementById("videoTitle").textContent=title;
+  document.getElementById("videoUploader").textContent=uploader;
+
+  if(modeToUse==="video"){
+    loadYT(id);
+  } else {
+    // Langsung load audio
+    loadAndPlayAudio(id, {title,uploader});
+  }
+
+  // Download buttons
+  const dlV=document.getElementById("dlVideo");
+  dlV.innerHTML="";
+  ["360","480","720"].forEach(q=>{
+    const a=document.createElement("a");
+    a.href="/api/download?id="+id+"&mode=video&q="+q;
+    a.className="dl-btn"; a.innerHTML="⬇ "+q+"p";
+    a.addEventListener("click",()=>toast("Download "+q+"p..."));
+    dlV.appendChild(a);
+  });
+  const dlA=document.getElementById("dlAudio");
+  dlA.innerHTML="";
+  const ab=document.createElement("a");
+  ab.href="/api/download?id="+id+"&mode=audio";
+  ab.className="dl-btn adl"; ab.innerHTML="🎵 Audio M4A";
+  ab.addEventListener("click",()=>toast("Download audio..."));
+  dlA.appendChild(ab);
+
+  // Prefetch audio di background kalau mode video
+  if(modeToUse==="video") setTimeout(()=>prefetch(id),2000);
+
+  loadRelated(id,title);
+}
+
+async function loadRelated(id,title){
+  const list=document.getElementById("relatedList");
+  list.innerHTML='<div style="color:var(--muted);font-size:12px;">Memuat...</div>';
+  relatedVideos=[];
+  try{
+    const kw=title.split(" ").slice(0,4).join(" ");
+    const res=await fetch("/api/search?q="+encodeURIComponent(kw));
+    const data=await res.json();
+    list.innerHTML="";
+    const vids=(data.results||[]).filter(v=>v.id!==id).slice(0,8);
+    relatedVideos=vids;
+    vids.forEach((v,i)=>{
+      const div=document.createElement("div");
+      div.className="related-card"+(i===0?" next-up":"");
+      div.onclick=()=>playVideo(v.id,v.title,v.uploader);
+      div.innerHTML=`<div class="related-thumb"><img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" loading="lazy"></div>
+        <div class="related-info">
+          <div class="related-title">${i===0?'▶ ':''} ${v.title||''}</div>
+          <div class="related-meta">${v.uploader||''} · ${fmt(v.duration)}</div>
+        </div>`;
+      list.appendChild(div);
+      // Prefetch audio video terkait pertama
+      if(i===0) setTimeout(()=>prefetch(v.id),3000);
+    });
+  }catch{}
+}
+
+loadHome();
+</script>
+</body>
+</html>
