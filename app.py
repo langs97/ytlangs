@@ -19,11 +19,7 @@ def search():
     if not q:
         return jsonify({"error": "Query kosong"}), 400
     try:
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": True,
-        }
+        ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info("ytsearch10:" + q, download=False)
         results = []
@@ -42,66 +38,99 @@ def search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/stream")
-def stream():
+@app.route("/api/audio_url")
+def audio_url():
+    """Ambil URL stream audio langsung untuk background play."""
     vid = request.args.get("id", "")
-    quality = request.args.get("q", "720")
     if not vid:
         return jsonify({"error": "ID kosong"}), 400
     try:
         url = "https://www.youtube.com/watch?v=" + vid
-
-        # Format berbeda untuk setiap kualitas
-        fmt_map = {
-            "360": "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/worst[ext=mp4]",
-            "480": "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best[height<=480]",
-            "720": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]",
-        }
-        fmt = fmt_map.get(quality, fmt_map["720"])
-
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
-            "format": fmt,
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        # Cari URL stream yang punya video+audio
-        stream_url = None
-        actual_height = None
-
-        # Kalau format sudah merged (ada url langsung)
+        audio_url = None
         if info.get("url"):
-            stream_url = info["url"]
-            actual_height = info.get("height")
+            audio_url = info["url"]
         else:
-            # Cari format dengan video+audio sekaligus
             for f in reversed(info.get("formats", [])):
-                h = f.get("height", 0) or 0
-                has_video = f.get("vcodec", "none") != "none"
-                has_audio = f.get("acodec", "none") != "none"
-                if has_video and has_audio and h <= int(quality) and h > 0:
-                    stream_url = f.get("url")
-                    actual_height = h
+                if f.get("acodec") != "none" and f.get("url"):
+                    audio_url = f["url"]
                     break
 
-            # Fallback: ambil format apapun yang ada
-            if not stream_url:
-                for f in reversed(info.get("formats", [])):
-                    if f.get("url"):
-                        stream_url = f.get("url")
-                        actual_height = f.get("height")
-                        break
-
-        if not stream_url:
-            return jsonify({"error": "Stream URL tidak ditemukan"}), 404
+        if not audio_url:
+            return jsonify({"error": "URL audio tidak ditemukan"}), 404
 
         return jsonify({
-            "url": stream_url,
+            "url": audio_url,
             "title": info.get("title"),
-            "actual_quality": str(actual_height) + "p" if actual_height else quality + "p"
+            "uploader": info.get("uploader"),
+            "thumbnail": info.get("thumbnail"),
+            "duration": info.get("duration"),
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/audio_stream")
+def audio_stream():
+    """Proxy stream audio — support range request untuk seekbar."""
+    vid = request.args.get("id", "")
+    if not vid:
+        return jsonify({"error": "ID kosong"}), 400
+    try:
+        url = "https://www.youtube.com/watch?v=" + vid
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        audio_src = None
+        content_type = "audio/mp4"
+        if info.get("url"):
+            audio_src = info["url"]
+            content_type = "audio/" + (info.get("ext") or "mp4")
+        else:
+            for f in reversed(info.get("formats", [])):
+                if f.get("acodec") != "none" and f.get("url"):
+                    audio_src = f["url"]
+                    content_type = "audio/" + (f.get("ext") or "mp4")
+                    break
+
+        if not audio_src:
+            return jsonify({"error": "URL tidak ditemukan"}), 404
+
+        # Forward range header kalau ada
+        range_header = request.headers.get("Range")
+        proxy_headers = dict(HEADERS)
+        if range_header:
+            proxy_headers["Range"] = range_header
+
+        r = requests.get(audio_src, headers=proxy_headers, stream=True, timeout=30)
+
+        resp_headers = {
+            "Content-Type": content_type,
+            "Accept-Ranges": "bytes",
+        }
+        if "Content-Length" in r.headers:
+            resp_headers["Content-Length"] = r.headers["Content-Length"]
+        if "Content-Range" in r.headers:
+            resp_headers["Content-Range"] = r.headers["Content-Range"]
+
+        def generate():
+            for chunk in r.iter_content(chunk_size=1024 * 64):
+                yield chunk
+
+        status = 206 if range_header else 200
+        return Response(generate(), status=status, headers=resp_headers)
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -112,10 +141,8 @@ def download():
     quality = request.args.get("q", "720")
     if not vid:
         return jsonify({"error": "ID kosong"}), 400
-
     try:
         url = "https://www.youtube.com/watch?v=" + vid
-
         if mode == "audio":
             fmt = "bestaudio[ext=m4a]/bestaudio/best"
             ext = "m4a"
@@ -128,16 +155,10 @@ def download():
             fmt = fmt_map.get(quality, fmt_map["720"])
             ext = "mp4"
 
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "format": fmt,
-        }
-
+        ydl_opts = {"quiet": True, "no_warnings": True, "format": fmt}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        # Ambil URL download
         dl_url = None
         dl_ext = ext
         title = info.get("title", "video")
@@ -156,13 +177,10 @@ def download():
             else:
                 for f in reversed(formats):
                     h = f.get("height", 0) or 0
-                    has_video = f.get("vcodec", "none") != "none"
-                    has_audio = f.get("acodec", "none") != "none"
-                    if has_video and has_audio and h <= int(quality) and h > 0:
+                    if f.get("vcodec","none") != "none" and f.get("acodec","none") != "none" and h <= int(quality):
                         dl_url = f.get("url")
                         dl_ext = f.get("ext", "mp4")
                         break
-
             if not dl_url and formats:
                 dl_url = formats[-1].get("url")
                 dl_ext = formats[-1].get("ext", ext)
@@ -170,7 +188,6 @@ def download():
         if not dl_url:
             return jsonify({"error": "URL download tidak ditemukan"}), 404
 
-        # Proxy download agar browser bisa download langsung
         safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:60]
         filename = safe_title + "." + dl_ext
 
@@ -187,7 +204,6 @@ def download():
                 "Content-Type": "video/mp4" if mode == "video" else "audio/m4a",
             }
         )
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
