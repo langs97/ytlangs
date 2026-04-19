@@ -116,6 +116,80 @@ def audio_url():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route("/api/next")
+def next_videos():
+    """Ambil video rekomendasi Up Next langsung dari halaman YouTube."""
+    vid = request.args.get("id", "")
+    limit = int(request.args.get("limit", "20"))
+    if not vid:
+        return jsonify({"error": "ID kosong"}), 400
+    try:
+        url = "https://www.youtube.com/watch?v=" + vid
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": "in_playlist",
+            "skip_download": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        results = []
+        seen_ids = {vid}
+
+        # yt_dlp menyimpan related videos di field "related_videos"
+        related = info.get("related_videos") or []
+        if not related:
+            related = info.get("entries") or []
+
+        for entry in related:
+            if not entry:
+                continue
+            eid = entry.get("id") or ""
+            if not eid or eid in seen_ids or len(eid) != 11:
+                continue
+            seen_ids.add(eid)
+            results.append({
+                "id": eid,
+                "title": entry.get("title") or "",
+                "uploader": entry.get("uploader") or entry.get("channel") or "",
+                "duration": entry.get("duration"),
+                "thumbnail": "https://img.youtube.com/vi/" + eid + "/mqdefault.jpg",
+                "view_count": entry.get("view_count"),
+            })
+            if len(results) >= limit:
+                break
+
+        # Fallback ke search judul jika related kosong
+        if not results:
+            title = info.get("title", "")
+            uploader = info.get("uploader") or info.get("channel") or ""
+            kw = " ".join((title + " " + uploader).split()[:5])
+            ydl_opts2 = {"quiet": True, "no_warnings": True, "extract_flat": True}
+            with yt_dlp.YoutubeDL(ydl_opts2) as ydl:
+                sinfo = ydl.extract_info(f"ytsearch{limit}:{kw}", download=False)
+            for entry in (sinfo.get("entries") or []):
+                if not entry:
+                    continue
+                eid = entry.get("id")
+                if not eid or eid in seen_ids:
+                    continue
+                seen_ids.add(eid)
+                results.append({
+                    "id": eid,
+                    "title": entry.get("title"),
+                    "uploader": entry.get("uploader") or entry.get("channel"),
+                    "duration": entry.get("duration"),
+                    "thumbnail": "https://img.youtube.com/vi/" + eid + "/mqdefault.jpg",
+                    "view_count": entry.get("view_count"),
+                })
+
+        source = "related" if related else "search"
+        return jsonify({"results": results, "source": source})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/download")
 def download():
     vid = request.args.get("id", "")
