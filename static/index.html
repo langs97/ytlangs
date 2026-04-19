@@ -56,6 +56,16 @@ main{max-width:1400px;margin:0 auto;padding:16px;}
 .audio-upl{font-size:12px;color:var(--muted);margin-bottom:10px;}
 .audio-stat{font-size:12px;color:var(--muted);margin-bottom:10px;min-height:16px;}
 
+/* Audio overlay on top of YT embed */
+.audio-yt-overlay{position:absolute;inset:0;z-index:10;background:linear-gradient(135deg,#0a0a0f 0%,#1a1a2e 60%,#0a0a0f 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;pointer-events:none;}
+.vinyl-disc{width:120px;height:120px;border-radius:50%;background:conic-gradient(from 0deg,#1c1c26,#2a2a38,#1c1c26,rgba(255,45,85,0.2),#1c1c26);position:relative;animation:vinylSpin 4s linear infinite;animation-play-state:paused;box-shadow:0 0 40px rgba(255,45,85,0.2),0 0 80px rgba(255,45,85,0.08);}
+.vinyl-disc.spinning{animation-play-state:running;}
+.vinyl-disc::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50%;background:var(--bg);border:3px solid var(--border);}
+@keyframes vinylSpin{to{transform:rotate(360deg);}}
+.audio-ov-title{font-size:14px;font-weight:600;color:var(--text);text-align:center;max-width:260px;line-height:1.3;padding:0 12px;}
+.audio-ov-badge{background:var(--red);color:white;font-size:11px;font-weight:600;padding:3px 12px;border-radius:20px;letter-spacing:0.5px;}
+.audio-yt-wrap{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:16/9;background:#000;}
+
 /* Controls — BIGGER */
 .ctrl-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px;}
 .ctrl-btn{background:none;border:none;color:var(--text);cursor:pointer;font-size:28px;padding:6px;transition:all 0.2s;line-height:1;}
@@ -169,28 +179,32 @@ main{max-width:1400px;margin:0 auto;padding:16px;}
     </div>
     <div class="player-layout">
       <div>
-        <div class="embed-wrap" id="embedWrap"><div id="ytEmbed"></div></div>
-        <div class="audio-player" id="audioPlayer">
-          <div class="audio-thumb-wrap">
-            <div class="audio-thumb-ph" id="audioThumbPh">🎵</div>
-            <img id="audioThumb" src="" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;">
+        <div class="embed-wrap" id="embedWrap" style="position:relative">
+            <div id="ytEmbed"></div>
+            <div class="audio-yt-overlay" id="audioOverlay" style="display:none;pointer-events:none">
+              <div class="vinyl-disc" id="vinylDisc"></div>
+              <div class="audio-ov-badge">🎵 Mode Audio</div>
+              <div class="audio-ov-title" id="audioOvTitle">Memuat...</div>
+            </div>
           </div>
+        <div class="audio-player" id="audioPlayer">
+
           <div class="audio-body">
             <div class="audio-ttl" id="audioTtl">—</div>
             <div class="audio-upl" id="audioUpl">—</div>
-            <div class="audio-stat" id="audioStat">⏳ Memuat audio...</div>
+            <div class="audio-stat" id="audioStat"></div>
             <div class="ctrl-row">
               <button class="ctrl-btn" onclick="playPrevious()" title="Sebelumnya">⏮</button>
-              <button class="ctrl-btn" onclick="seekAudio(-10)" title="-10 detik">⏪</button>
+              <button class="ctrl-btn" onclick="ytSeek(-10)" title="-10 detik">⏪</button>
               <button class="ctrl-btn pp" id="ppBtn" onclick="togglePlay()">▶</button>
-              <button class="ctrl-btn" onclick="seekAudio(10)" title="+10 detik">⏩</button>
+              <button class="ctrl-btn" onclick="ytSeek(10)" title="+10 detik">⏩</button>
               <button class="ctrl-btn" onclick="playNext()" title="Selanjutnya">⏭</button>
             </div>
             <div class="prog-wrap">
-              <div class="prog-bar" id="progBar" onclick="seekClick(event,this)"><div class="prog-fill" id="progFill"></div></div>
+              <div class="prog-bar" id="progBar" onclick="ytSeekClick(event,this)"><div class="prog-fill" id="progFill"></div></div>
               <div class="time-lbl" id="timeLbl">0:00 / 0:00</div>
             </div>
-            <div class="vol-row">🔊<input type="range" min="0" max="1" step="0.05" value="1" oninput="audioEl.volume=this.value"></div>
+            <div class="vol-row">🔊<input type="range" min="0" max="100" step="5" value="100" oninput="ytSetVol(this.value)"></div>
           </div>
         </div>
         <div class="video-info">
@@ -233,7 +247,6 @@ main{max-width:1400px;margin:0 auto;padding:16px;}
   </div>
 </div>
 
-<audio id="audioEl" preload="auto"></audio>
 <div class="toast" id="toast"></div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
@@ -243,24 +256,37 @@ let prevPage = 'home';
 let currentMode = 'video';
 let miniActive = false;
 let relatedVideos = [];
-let relatedIndex = 0; // index video yang sedang diputar di queue
-let historyQueue = []; // riwayat dalam sesi untuk tombol "sebelumnya"
-let audioCache = {};
-const audioEl = document.getElementById('audioEl');
+let relatedIndex = 0;
+let historyQueue = [];
 let ytPlayer = null;
 let ytReady = false;
 let ytPendingId = null;
+let ytAudioPlaying = false;
+let ytProgressTimer = null;
 
 // ─── YouTube IFrame API ───────────────────────────────────────────────────────
 function onYouTubeIframeAPIReady(){
   ytReady = true;
   ytPlayer = new YT.Player('ytEmbed',{
     height:'100%', width:'100%',
-    playerVars:{autoplay:1,rel:0,modestbranding:1,iv_load_policy:3},
+    playerVars:{autoplay:1,rel:0,modestbranding:1,iv_load_policy:3,enablejsapi:1},
     events:{
-      onReady:()=>{ if(ytPendingId) loadYT(ytPendingId); },
+      onReady:()=>{ if(ytPendingId){ loadYT(ytPendingId); ytPendingId=null; } },
       onStateChange:(e)=>{
-        if(e.data===YT.PlayerState.ENDED && currentMode==='video'){
+        if(e.data===YT.PlayerState.PLAYING){
+          ytAudioPlaying=true;
+          document.getElementById("ppBtn").textContent="⏸";
+          document.getElementById("miniPPBtn").textContent="⏸";
+          document.getElementById("vinylDisc").classList.add("spinning");
+          if(currentMode==='audio') startProgressTimer();
+        } else if(e.data===YT.PlayerState.PAUSED){
+          ytAudioPlaying=false;
+          document.getElementById("ppBtn").textContent="▶";
+          document.getElementById("miniPPBtn").textContent="▶";
+          document.getElementById("vinylDisc").classList.remove("spinning");
+        } else if(e.data===YT.PlayerState.ENDED){
+          ytAudioPlaying=false;
+          document.getElementById("vinylDisc").classList.remove("spinning");
           playNext();
         }
       }
@@ -269,9 +295,32 @@ function onYouTubeIframeAPIReady(){
 }
 
 function loadYT(id){
-  if(!ytReady||!ytPlayer){ytPendingId=id;return;}
+  if(!ytReady||!ytPlayer||!ytPlayer.loadVideoById){ ytPendingId=id; return; }
   ytPendingId=null;
   ytPlayer.loadVideoById(id);
+  if(currentMode==='audio'){
+    setTimeout(()=>{ try{ ytPlayer.mute(); }catch{} },600);
+  } else {
+    setTimeout(()=>{ try{ ytPlayer.unMute(); }catch{} },300);
+  }
+}
+
+// ─── Progress timer untuk audio mode ─────────────────────────────────────────
+function startProgressTimer(){
+  clearInterval(ytProgressTimer);
+  ytProgressTimer = setInterval(()=>{
+    if(!ytPlayer||currentMode!=='audio') return;
+    try{
+      const cur=ytPlayer.getCurrentTime()||0;
+      const dur=ytPlayer.getDuration()||0;
+      if(!dur||isNaN(dur)) return;
+      const pct=(cur/dur*100).toFixed(2)+"%";
+      document.getElementById("progFill").style.width=pct;
+      document.getElementById("miniProgFill").style.width=pct;
+      document.getElementById("timeLbl").textContent=fmt(cur)+" / "+fmt(dur);
+      document.getElementById("miniTime").textContent=fmt(cur);
+    }catch{}
+  },500);
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -326,8 +375,8 @@ function expandPlayer(){
 function closeMini(){
   miniActive=false;
   document.getElementById("miniPlayer").classList.remove("show");
-  audioEl.pause(); audioEl.src="";
-  if(ytPlayer) ytPlayer.stopVideo();
+  if(ytPlayer){ ytPlayer.stopVideo(); }
+  clearInterval(ytProgressTimer);
   currentVideo=null; relatedVideos=[]; historyQueue=[];
 }
 
@@ -351,74 +400,48 @@ function playPrevious(){
   _playVideoInternal(prev.id, prev.title, prev.uploader, prev.duration, prev.view_count, false);
 }
 
-// Audio ended → next
-audioEl.addEventListener("ended",()=>{
-  if(currentMode==="audio") playNext();
-});
-
-// ─── Audio ────────────────────────────────────────────────────────────────────
-async function fetchAudio(id){
-  if(audioCache[id]) return audioCache[id];
-  const res=await fetch("/api/audio_url?id="+id);
-  const data=await res.json();
-  if(data.error) throw new Error(data.error);
-  audioCache[id]=data.url;
-  return data.url;
-}
-
-async function loadAudio(id, info){
-  document.getElementById("audioStat").textContent="⏳ Memuat audio...";
-  document.getElementById("ppBtn").textContent="▶";
-
-  // Set info
+// ─── Audio (pakai YT IFrame, bukan yt-dlp) ───────────────────────────────────
+function loadAudio(id, info){
+  // Set info text
   if(info){
     document.getElementById("audioTtl").textContent=info.title||"";
     document.getElementById("audioUpl").textContent=info.uploader||"";
+    document.getElementById("audioOvTitle").textContent=info.title||"";
   }
-
-  // Thumbnail
-  const thumbEl=document.getElementById("audioThumb");
-  const thumbPh=document.getElementById("audioThumbPh");
-  thumbEl.style.display="none"; thumbPh.style.display="flex";
-  const tryThumb=(url)=>new Promise(r=>{const i=new Image();i.onload=()=>r(true);i.onerror=()=>r(false);i.src=url;});
-  const hdOk=await tryThumb("https://img.youtube.com/vi/"+id+"/maxresdefault.jpg");
-  thumbEl.src=hdOk?"https://img.youtube.com/vi/"+id+"/maxresdefault.jpg":"https://img.youtube.com/vi/"+id+"/mqdefault.jpg";
-  thumbEl.style.display="block"; thumbPh.style.display="none";
-
-  try{
-    const url=await fetchAudio(id);
-    audioEl.src=url; audioEl.load();
-    const p=audioEl.play(); if(p) p.catch(()=>{});
-    document.getElementById("audioStat").textContent="";
-    // Prefetch audio berikutnya
-    if(relatedVideos[relatedIndex+1]) fetchAudio(relatedVideos[relatedIndex+1].id).catch(()=>{});
-  }catch(e){
-    document.getElementById("audioStat").textContent="❌ Gagal: "+e.message;
-  }
+  document.getElementById("audioStat").textContent="";
+  document.getElementById("ppBtn").textContent="▶";
+  // Load video via YT player (muted = audio only experience)
+  loadYT(id);
 }
 
-function prefetch(id){ if(!audioCache[id]) fetchAudio(id).catch(()=>{}); }
+function prefetch(id){ /* tidak perlu prefetch, pakai YT embed */ }
 
 function togglePlay(){
-  if(audioEl.paused) audioEl.play(); else audioEl.pause();
-}
-function seekAudio(s){audioEl.currentTime=Math.max(0,audioEl.currentTime+s);}
-function seekClick(e,bar){
-  const rect=bar.getBoundingClientRect();
-  const r=(e.clientX-rect.left)/rect.width;
-  if(audioEl.duration) audioEl.currentTime=Math.max(0,Math.min(r*audioEl.duration,audioEl.duration));
+  if(!ytPlayer) return;
+  if(ytAudioPlaying){ ytPlayer.pauseVideo(); } else { ytPlayer.playVideo(); }
 }
 
-audioEl.addEventListener("timeupdate",()=>{
-  if(!audioEl.duration||isNaN(audioEl.duration)) return;
-  const pct=(audioEl.currentTime/audioEl.duration*100).toFixed(2)+"%";
-  document.getElementById("progFill").style.width=pct;
-  document.getElementById("miniProgFill").style.width=pct;
-  document.getElementById("timeLbl").textContent=fmt(audioEl.currentTime)+" / "+fmt(audioEl.duration);
-  document.getElementById("miniTime").textContent=fmt(audioEl.currentTime);
-});
-audioEl.addEventListener("play",()=>{document.getElementById("ppBtn").textContent="⏸";document.getElementById("miniPPBtn").textContent="⏸";});
-audioEl.addEventListener("pause",()=>{document.getElementById("ppBtn").textContent="▶";document.getElementById("miniPPBtn").textContent="▶";});
+function ytSeek(s){
+  if(!ytPlayer) return;
+  const t=(ytPlayer.getCurrentTime()||0)+s;
+  ytPlayer.seekTo(Math.max(0,t),true);
+}
+
+function ytSeekClick(e,bar){
+  if(!ytPlayer) return;
+  const rect=bar.getBoundingClientRect();
+  const r=(e.clientX-rect.left)/rect.width;
+  const dur=ytPlayer.getDuration()||0;
+  if(dur) ytPlayer.seekTo(Math.max(0,Math.min(r*dur,dur)),true);
+}
+
+function ytSetVol(v){
+  if(ytPlayer&&ytPlayer.setVolume) ytPlayer.setVolume(parseInt(v));
+}
+
+// Alias kompatibilitas
+function seekAudio(s){ ytSeek(s); }
+function seekClick(e,bar){ ytSeekClick(e,bar); }
 
 // ─── Mode switch ─────────────────────────────────────────────────────────────
 function switchMode(mode){
@@ -426,16 +449,16 @@ function switchMode(mode){
   currentMode=mode;
   document.getElementById("modeVideo").classList.toggle("active",mode==="video");
   document.getElementById("modeAudio").classList.toggle("active",mode==="audio");
-  document.getElementById("embedWrap").style.display=mode==="video"?"block":"none";
+  document.getElementById("embedWrap").style.display="block";
   document.getElementById("audioPlayer").style.display=mode==="audio"?"block":"none";
+  document.getElementById("audioOverlay").style.display=mode==="audio"?"flex":"none";
   if(mode==="video"){
-    audioEl.pause();
+    clearInterval(ytProgressTimer);
+    try{ ytPlayer.unMute(); }catch{}
     loadYT(currentVideo.id);
   } else {
-    if(ytPlayer) ytPlayer.pauseVideo();
     loadAudio(currentVideo.id, currentVideo);
   }
-  // Update mini player
   if(miniActive) activateMini();
 }
 
@@ -527,8 +550,8 @@ function _playVideoInternal(id, title, uploader, duration, view_count, pushHisto
     document.getElementById("miniPlayer").classList.remove("show");
     miniActive=false;
   }
-  audioEl.pause();
-  if(ytPlayer&&currentMode==="video") ytPlayer.stopVideo();
+  if(ytPlayer){ try{ ytPlayer.stopVideo(); }catch{} }
+  clearInterval(ytProgressTimer);
 
   const modeToUse=currentMode;
   currentVideo={id,title,uploader,duration,view_count};
@@ -547,8 +570,9 @@ function _playVideoInternal(id, title, uploader, duration, view_count, pushHisto
 
   document.getElementById("modeVideo").classList.toggle("active",modeToUse==="video");
   document.getElementById("modeAudio").classList.toggle("active",modeToUse==="audio");
-  document.getElementById("embedWrap").style.display=modeToUse==="video"?"block":"none";
+  document.getElementById("embedWrap").style.display="block";
   document.getElementById("audioPlayer").style.display=modeToUse==="audio"?"block":"none";
+  document.getElementById("audioOverlay").style.display=modeToUse==="audio"?"flex":"none";
 
   document.getElementById("videoTitle").textContent=title;
   document.getElementById("videoUploader").textContent=uploader||"";
